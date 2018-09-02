@@ -4,9 +4,9 @@
 void ftp_reply(session& sess, int status, const char *text);
 
 class worker {
-    session sess;
+    int fdKey;
 public:
-    worker(const session& sess);
+    worker(int fd);
     void process();
 };
 
