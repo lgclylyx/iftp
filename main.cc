@@ -95,9 +95,7 @@ int main(int argc, char* argv[]){
 						epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, &ev);
                     }
                     INFOF("iftp", "%d: %s\n", fd, "send a new cmdLine.");
-                    //TODO:: 优化一下，此处后引入两次copy construct
-                    session t = lMap.get(fd);
-                    worker* w = new worker(t);
+                    worker* w = new worker(fd);
                     pool.append(w);
                 }
             }
