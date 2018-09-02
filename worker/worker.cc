@@ -36,6 +36,10 @@ static struct ftpcmd_t{
 	{"PASV",&do_pasv}
 };
 
+/**
+ * TODO: 修改class worker的定义，成员变量变为fd，
+ * 在proess中从map中获取session
+ */
 worker::worker(const session& sess):sess(sess) {
 
 }
