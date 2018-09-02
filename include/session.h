@@ -2,6 +2,7 @@
 #define _session_h_
 
 /**
+ *session: 一个用户的一次连接 
  *cmdLine: 接收到的命令行
  *cmd: 指令
  *arg: 指令参数
@@ -34,7 +35,7 @@ struct session{
 	char dir[PATH_MAX];
 	// 传输模式，true：ascii; false: binary;
 	bool is_ascii;
-	// port模式地址
+	// port模式地址, TODO: 是否可以直接使用一个对象代替指针？
 	struct sockaddr_in* port_addr;
 
 	session(){
