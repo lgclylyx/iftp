@@ -217,6 +217,7 @@ static void do_pass(session& sess) {
 
 	sess.gid = pw.pw_gid;
 	strncpy(sess.dir, pw.pw_dir, PATH_MAX);	
+	INFOF("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "home directory: ", sess.dir);
 
 	delete[] buf;
 	delete[] spbuf;
@@ -392,18 +393,27 @@ int get_transfer_fd(session& sess) {
 }
 
 static bool list_common(session& sess) {
-	DIR* dir = opendir(".");
+	DIR* dir = opendir(sess.dir);
 	if(dir == NULL){
+		ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "list_common: failed to opendir ", sess.dir);
+		return false;
+	}
+
+	int baseFd = open(sess.dir, O_RDONLY);
+	if(-1 == baseFd) {
+		ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "list_common: failed to open ", sess.dir);
 		return false;
 	}
 
 	struct dirent * dt;
 	struct stat sbuf;
 	char buf[1024];
-	while((dt = readdir(dir))!=NULL){
-		memset(buf,0,sizeof(buf));
-		if(lstat(dt->d_name,&sbuf) < 0)
+	while((dt = readdir(dir))!=NULL) {
+		memset(buf, 0, sizeof(buf));
+		if(fstatat(baseFd, dt->d_name, &sbuf, AT_SYMLINK_NOFOLLOW) < 0) {
+			WARN("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "list_common: lstat error on ", dt->d_name);
 			continue;
+		}
 		if(dt->d_name[0] == '.')
 			continue;
 //		if(0 == strcmp(dt->d_name,".") || 0 == strcmp(dt->d_name,".."))
@@ -484,7 +494,7 @@ static bool list_common(session& sess) {
 		}
 
 		char datebuf[64] = {0};
-		struct tm* p_tm = localtime(&local_time);
+		struct tm* p_tm = localtime(&sbuf.st_mtime);
 		strftime(datebuf,sizeof(datebuf),p_date_format,p_tm);
 
 		off += sprintf(buf+off," %s",datebuf);
@@ -498,7 +508,7 @@ static bool list_common(session& sess) {
 		}
 		rio_writen(sess.data_fd,buf,strlen(buf));
 	}
-
+	return true;
 }
 
 static void do_list(session& sess) {
@@ -508,11 +518,16 @@ static void do_list(session& sess) {
 	}
 
 	ftp_reply(sess, 150, "here comes the directory listing");
-	list_common(sess);
-	close(sess.data_fd);
-	sess.data_fd = -1;
+	if(!list_common(sess)) {
+		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "list: failed to list.");
+		ftp_reply(sess, 451, "Requested action aborted");
+		goto clear;
+	}
 
 	ftp_reply(sess, 226, "directory send ok");
+clear:
+	close(sess.data_fd);
+	sess.data_fd = -1;
 }
 
 static void do_pasv(session& sess){
