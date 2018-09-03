@@ -74,9 +74,43 @@ int connect_timeout_f(int fd, struct sockaddr_in* addr,unsigned int wait_seconds
 			}
 		}
 	}
-	if(wait_seconds > 0){
-		setNoblock(fd,0);
+	if(wait_seconds > 0) {
+		setNoblock(fd, 0);
 	}
+	return ret;
+}
+
+int accept_timeout_f(int fd, unsigned int wait_seconds) {
+	int ret;
+	fd_set accept_fdset;
+	struct timeval timeout;
+	FD_ZERO(&accept_fdset);
+	FD_SET(fd, &accept_fdset);
+	timeout.tv_sec = wait_seconds;
+	timeout.tv_usec = 0;
+
+	if(wait_seconds > 0)
+		setNoblock(fd, 1);
+
+	do {
+		ret = select(fd+1, &accept_fdset, NULL, NULL, &timeout);
+	} while((ret < 0) && (errno == EINTR || errno == EWOULDBLOCK || errno == ECONNABORTED || errno == EPROTO));
+
+	if(0 == ret) {
+		ERROR("iftp", "%s\n", "accept_timeout: accept connection timeout.");
+		ret = -1;
+		errno = ETIMEDOUT;		
+	} else if(ret < 0) {
+		ERROR("iftp", "%s\n", "accept_timeout: something wrong happend on select.");
+		ret = -1;
+	} else if(1 == ret) {
+		ret = accept(fd, NULL, NULL);
+	}
+
+	if(wait_seconds > 0) {
+		setNoblock(fd, 0);
+	}
+
 	return ret;
 }
 
