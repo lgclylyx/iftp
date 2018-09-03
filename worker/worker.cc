@@ -580,11 +580,44 @@ static void do_pasv(session& sess){
 	ftp_reply(sess, 227, text);
 }
 
+static char *simplifyPath(char *path) {
+    if (path == NULL) 
+		return NULL;
+
+    char *ret = (char *) malloc(strlen(path) + 1);
+    int index = -1;
+    int start = 1, end = 1;
+    while (path[end] != '\0') {
+        while (path[end] != '/' && path[end] != '\0') ++end;
+        if (start == end || (start + 1 == end && path[start] == '.')) {
+            // skip
+        } else if (start + 2 == end && path[start] == '.' && path[start + 1] == '.') {
+            while (index >= 0 && ret[index] != '/') --index;
+            if (index >= 0) --index;
+        } else {
+            ret[++index] = '/';
+            memcpy(ret + index + 1, path + start, end - start);
+            index += end - start;
+        }
+
+        if (path[end] == '\0') break;
+        start = end + 1;
+        end = start;
+    }
+    if (index == -1) {
+        ret = (char *) realloc(ret, 2);
+        ret[++index] = '/';
+    } else {
+        ret = (char *) realloc(ret, index + 2);
+    }
+    ret[index + 1] = '\0';
+    return ret;
+}
 
 static void do_cwd(session& sess) {
 	struct stat sbuf;
-	if(-1 == stat(sess.arg, &sbuf)) {
-		INFOF("iftp", "fd %d: %s\n", "do_cwd: the arg may be a  relative path. try it.");
+	if(sess.arg[0] != '/' || (-1 == stat(sess.arg, &sbuf))) {
+		INFOF("iftp", "fd %d: %s\n", sess.ctrl_fd, "do_cwd: the arg may be a  relative path. try it.");
 		int baseFd = open(sess.dir, O_RDONLY);
 		if(-1 == baseFd) {
 			ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "do_cwd: failed to open ", sess.dir);
@@ -599,6 +632,12 @@ static void do_cwd(session& sess) {
 		if(((sbuf.st_uid == sess.uid) && (S_IXUSR & sbuf.st_mode)) || ((sbuf.st_gid == sess.uid) && (S_IXGRP & sbuf.st_mode)) || (S_IXOTH & sbuf.st_mode)) {
 			sess.dir[strlen(sess.dir)] = '/';
 			strncpy(sess.dir+strlen(sess.dir), sess.arg, PATH_MAX - strlen(sess.dir));
+			/**
+			 * 将一个绝对地址简化，如/./a/../b -> /b
+			 */
+			char* ret = simplifyPath(sess.dir);
+			strncpy(sess.dir, ret, PATH_MAX);
+			free(ret);
 			INFOF("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "do_cwd: user can access ", sess.dir);
 		} else {
 			ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "do_cwd: user can't access ", sess.dir);
