@@ -550,14 +550,14 @@ static void do_pasv(session& sess){
 
 	if(!getlocalip(ip, sess.ctrl_fd)) {
 		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "pasv mode: failed to get local ip.");
-		ftp_reply(sess, 451, "Requested action aborted");
+		ftp_reply(sess, 550, "Requested action aborted");
 		return;
 	}
 
 	sess.pasv_fd = tcp_server(ip, 0);
 	if(-1 == sess.pasv_fd) {
 		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "pasv mode: failed to create listenfd.");
-		ftp_reply(sess, 451, "Requested action aborted");
+		ftp_reply(sess, 550, "Requested action aborted");
 		return;
 	}
 
@@ -568,7 +568,7 @@ static void do_pasv(session& sess){
 		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "pasv mode: failed to get local port.");
 		close(sess.pasv_fd);
 		sess.pasv_fd = -1;
-		ftp_reply(sess, 451, "Requested action aborted");
+		ftp_reply(sess, 550, "Requested action aborted");
 		return;
 	}
 	unsigned port = ntohs(addr.sin_port);
