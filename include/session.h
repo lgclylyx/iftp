@@ -11,6 +11,7 @@
  *child_fd: unused
  *data_fd: 数据连接套接字
  *pasv_fd: 被动连接监听套接字
+ *restart_pos: 用于断点续传
  *uid: 用户ID
  *gid: 用户组ID
  *dir: 该会话当前所处的目录
@@ -29,6 +30,8 @@ struct session{
 	int data_fd;
 	int pasv_fd;
 
+	long long restart_pos;
+
 	// 用户信息
 	uid_t uid;
 	gid_t gid;
@@ -44,6 +47,7 @@ struct session{
 		pasv_fd = -1;
 		parent_fd = -1;
 		child_fd = -1;
+		restart_pos = 0;
 	}
 
 	session(const session& sess) {

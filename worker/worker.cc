@@ -20,6 +20,8 @@ static void do_port(session& sess);
 static void do_list(session& sess);
 static void do_pasv(session& sess);
 static void do_cwd(session& sess);
+static void do_reset(session& sess);
+static void do_get(session& sess);
 
 static struct ftpcmd_t{
 	const char* cmd;
@@ -35,7 +37,9 @@ static struct ftpcmd_t{
 	{"PORT",&do_port},
 	{"LIST",&do_list},
 	{"PASV",&do_pasv},
-	{"CWD",&do_cwd}
+	{"CWD",&do_cwd},
+	{"RESET",&do_reset},
+	{"RETR",&do_get}
 };
 
 worker::worker(int fd):fdKey(fd) {
@@ -529,7 +533,7 @@ static void do_list(session& sess) {
 	ftp_reply(sess, 150, "here comes the directory listing");
 	if(!list_common(sess)) {
 		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "list: failed to list.");
-		ftp_reply(sess, 451, "Requested action aborted");
+		ftp_reply(sess, 550, "failed to do list");
 		goto clear;
 	}
 
@@ -550,14 +554,14 @@ static void do_pasv(session& sess){
 
 	if(!getlocalip(ip, sess.ctrl_fd)) {
 		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "pasv mode: failed to get local ip.");
-		ftp_reply(sess, 550, "Requested action aborted");
+		ftp_reply(sess, 550, "failed to get local ip");
 		return;
 	}
 
 	sess.pasv_fd = tcp_server(ip, 0);
 	if(-1 == sess.pasv_fd) {
 		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "pasv mode: failed to create listenfd.");
-		ftp_reply(sess, 550, "Requested action aborted");
+		ftp_reply(sess, 550, "failed to create listened server");
 		return;
 	}
 
@@ -568,7 +572,7 @@ static void do_pasv(session& sess){
 		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "pasv mode: failed to get local port.");
 		close(sess.pasv_fd);
 		sess.pasv_fd = -1;
-		ftp_reply(sess, 550, "Requested action aborted");
+		ftp_reply(sess, 550, "failed to get local port");
 		return;
 	}
 	unsigned port = ntohs(addr.sin_port);
@@ -655,4 +659,91 @@ static void do_cwd(session& sess) {
 		}
 	}
 	ftp_reply(sess, 250, "directory successfully changed");
+}
+// TODO: 后续还需要进行逻辑判断
+static void do_reset(session& sess) {
+	sess.restart_pos = atoll(sess.arg);
+	char text[1024] = {0};
+	sprintf(text, "Restart postion accepted(%lld)", sess.restart_pos);
+	ftp_reply(sess, 350, text);
+}
+
+static void do_get(session& sess) {
+	int nsend = 0, ntotal = 0;
+	char sbuff[4096],*sbuffptr = sbuff;
+	char text[1024] = {0};
+	// (1)下载文件;(2)断点续传;
+	if(get_transfer_fd(sess) == 0) {
+		ftp_reply(sess, 425, "use pasv or port first");
+		return;
+	}
+
+	// 打开文件
+	int baseFd = open(sess.dir, O_RDONLY);
+	int fd = openat(baseFd, sess.arg, O_RDONLY);
+	if(-1 == fd) {
+		ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "failed to open file ", sess.arg);
+		ftp_reply(sess, 550, "failed to open file");
+		goto clear;
+	}
+	// 加文件锁
+	{
+		int ret;
+		struct flock lock;
+		memset(&lock, 0, sizeof(struct flock));
+		lock.l_type = F_RDLCK;
+		lock.l_whence = SEEK_SET;
+		lock.l_start = 0;
+		lock.l_len = 0;
+		do {
+			int ret = fcntl(fd, F_SETLKW, &lock);
+		}while(ret < 0 && errno == EINTR);
+		if(-1 == ret) {
+			ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "failed to lock file ", sess.arg);
+			ftp_reply(sess, 550, "failed to lock file");
+			goto clear;
+		}
+	}
+
+	struct stat sbuf;
+	if(-1 == fstat(fd, &sbuf) || !S_ISREG(sbuf.st_mode)) {
+		ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "bad file type.");
+		ftp_reply(sess, 550, "bad file type");
+		goto clear;
+	}
+
+	if(sess.is_ascii) {
+		sprintf(text, "opening ascii mode data connection for %s (%lld bytes)", sess.arg, (long long)sbuf.st_size);
+	} else {
+		sprintf(text, "opening binary mode data connection for %s (%lld bytes)", sess.arg, (long long)sbuf.st_size);
+	}
+	ftp_reply(sess, 150, text);
+
+	while(true) {
+		ntotal = rio_readn(fd, sbuff, sizeof(sbuff));
+		if(0 == ntotal) {
+			INFOF("iftp", "fd %d: %s\n", sess.ctrl_fd, "send file completed.");
+			break;
+		} else if(-1 == ntotal) {
+			ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "failed to send file due to file.");
+			break;
+		}
+		nsend = rio_writen(sess.data_fd, sbuffptr, ntotal);
+		if(-1 == nsend) {
+			ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "failed to send file due to network.");
+			break;
+		}
+	}
+clear:
+	close(baseFd);
+	close(fd);
+	close(sess.data_fd);
+	sess.data_fd = -1;
+	if(0 == ntotal){
+		ftp_reply(sess, 226, "transfer complete");
+	} else if(-1 == ntotal) {
+		ftp_reply(sess, 451, "failed to read local file");
+	} else {
+		ftp_reply(sess, 426, "bad network");
+	}
 }
