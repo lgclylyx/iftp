@@ -19,6 +19,7 @@ static void do_type(session& sess);
 static void do_port(session& sess);
 static void do_list(session& sess);
 static void do_pasv(session& sess);
+static void do_cwd(session& sess);
 
 static struct ftpcmd_t{
 	const char* cmd;
@@ -33,9 +34,9 @@ static struct ftpcmd_t{
 	{"TYPE",&do_type},
 	{"PORT",&do_port},
 	{"LIST",&do_list},
-	{"PASV",&do_pasv}
+	{"PASV",&do_pasv},
+	{"CWD",&do_cwd}
 };
-
 
 worker::worker(int fd):fdKey(fd) {
 
@@ -373,26 +374,28 @@ int get_transfer_fd(session& sess) {
 			free(sess.port_addr);
 			sess.port_addr = NULL;
 		}
-		if(0 == ret)
+		if(0 == ret) {
 			return 0;
+		}
 		sess.data_fd = ret;
 	}
 
 	if(pasv_active(sess)){
-		//	TODO
-		int fd = accept(sess.pasv_fd,NULL,NULL);
+		int ret = accept_timeout_f(sess.pasv_fd, accept_timeout);
 		close(sess.pasv_fd);
 		sess.pasv_fd = -1;
-		if(fd == -1){
+		if(-1 == ret){
+			ERROR("iftp", "fd %d: %s\n", sess.ctrl_fd, "pasv mode: failed to accept connection.");
 			return 0;
 		}
-		sess.data_fd = fd;
+		sess.data_fd = ret;
 	}
 
 	return 1;
 }
 
 static bool list_common(session& sess) {
+	INFOF("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "list_commom: list dir ", sess.dir);
 	DIR* dir = opendir(sess.dir);
 	if(dir == NULL){
 		ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "list_common: failed to opendir ", sess.dir);
@@ -563,4 +566,42 @@ static void do_pasv(session& sess){
 	sprintf(text, "Enter Passive Mode (%u,%u,%u,%u,%u,%u)", args[0], args[1], args[2], args[3], port>>8, port&0xFF);
 
 	ftp_reply(sess, 227, text);
+}
+
+
+static void do_cwd(session& sess) {
+	struct stat sbuf;
+	if(-1 == stat(sess.arg, &sbuf)) {
+		INFOF("iftp", "fd %d: %s\n", "do_cwd: the arg may be a  relative path. try it.");
+		int baseFd = open(sess.dir, O_RDONLY);
+		if(-1 == baseFd) {
+			ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "do_cwd: failed to open ", sess.dir);
+			ftp_reply(sess, 550, "failed to change directory");
+			return;
+		}
+		if(fstatat(baseFd, sess.arg, &sbuf, 0) < 0) {
+			ERROR("iftp", "fd %d: %s%s/%s.\n", sess.ctrl_fd, "do_cwd: failed to fstatat ", sess.dir, sess.arg);
+			ftp_reply(sess, 550, "failed to change directory");
+			return;
+		}
+		if(((sbuf.st_uid == sess.uid) && (S_IXUSR & sbuf.st_mode)) || ((sbuf.st_gid == sess.uid) && (S_IXGRP & sbuf.st_mode)) || (S_IXOTH & sbuf.st_mode)) {
+			sess.dir[strlen(sess.dir)] = '/';
+			strncpy(sess.dir+strlen(sess.dir), sess.arg, PATH_MAX - strlen(sess.dir));
+			INFOF("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "do_cwd: user can access ", sess.dir);
+		} else {
+			ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "do_cwd: user can't access ", sess.dir);
+			ftp_reply(sess, 550, "failed to change directory");
+			return;
+		}
+	} else {
+		if(((sbuf.st_uid == sess.uid) && (S_IXUSR & sbuf.st_mode)) || ((sbuf.st_gid == sess.uid) && (S_IXGRP & sbuf.st_mode)) || (S_IXOTH & sbuf.st_mode)) {
+			strncpy(sess.dir, sess.arg, PATH_MAX);
+			INFOF("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "do_cwd: user can access ", sess.arg);
+		} else {
+			ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "do_cwd: user can't access ", sess.arg);
+			ftp_reply(sess, 550, "failed to change directory");
+			return;
+		}
+	}
+	ftp_reply(sess, 250, "directory successfully changed");
 }
