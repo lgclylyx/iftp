@@ -405,7 +405,7 @@ int get_transfer_fd(session& sess) {
 }
 
 static bool list_common(session& sess) {
-	INFOF("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "list_commom: list dir ", sess.dir);
+	INFOF("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "list_common: list dir ", sess.dir);
 	DIR* dir = opendir(sess.dir);
 	if(dir == NULL){
 		ERROR("iftp", "fd %d: %s%s.\n", sess.ctrl_fd, "list_common: failed to opendir ", sess.dir);
@@ -521,6 +521,7 @@ static bool list_common(session& sess) {
 		}
 		rio_writen(sess.data_fd,buf,strlen(buf));
 	}
+	close(baseFd);
 	return true;
 }
 
@@ -631,8 +632,10 @@ static void do_cwd(session& sess) {
 		if(fstatat(baseFd, sess.arg, &sbuf, 0) < 0) {
 			ERROR("iftp", "fd %d: %s%s/%s.\n", sess.ctrl_fd, "do_cwd: failed to fstatat ", sess.dir, sess.arg);
 			ftp_reply(sess, 550, "failed to change directory");
+			close(baseFd);
 			return;
 		}
+		close(baseFd);
 		if(((sbuf.st_uid == sess.uid) && (S_IXUSR & sbuf.st_mode)) || ((sbuf.st_gid == sess.uid) && (S_IXGRP & sbuf.st_mode)) || (S_IXOTH & sbuf.st_mode)) {
 			sess.dir[strlen(sess.dir)] = '/';
 			strncpy(sess.dir+strlen(sess.dir), sess.arg, PATH_MAX - strlen(sess.dir));
