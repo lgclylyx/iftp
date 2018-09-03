@@ -305,6 +305,12 @@ static void do_type(session& sess) {
 }
 
 static void do_port(session& sess) {
+	if(NULL != sess.port_addr) {
+		free(sess.port_addr);
+		sess.port_addr = NULL;
+		WARN("iftp", "fd %d: %s\n", sess.ctrl_fd, "do_pasv: double use port cmd; the older one be closed.");
+	}
+
 	unsigned int args[6];
 	sscanf(sess.arg, "%u,%u,%u,%u,%u,%u", &args[2], &args[3], &args[4], &args[5], &args[0], &args[1]);
 	sess.port_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
@@ -534,6 +540,12 @@ clear:
 }
 
 static void do_pasv(session& sess){
+	if(-1 != sess.pasv_fd) {
+		close(sess.pasv_fd);
+		sess.pasv_fd = -1;
+		WARN("iftp", "fd %d: %s\n", sess.ctrl_fd, "do_pasv: double use pasv cmd; the older one be closed.");
+	}
+
 	char ip[16] = {0};
 
 	if(!getlocalip(ip, sess.ctrl_fd)) {

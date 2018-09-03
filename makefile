@@ -6,7 +6,7 @@ LLIB = -lpthread -lcrypt
 
 LIB = lib/RIO.a
 
-OBJS = main.o inet_util/inet_util.o global/global.o worker/worker.o  lock_map/lock_map.o \
+OBJS = main.o global/global.o worker/worker.o inet_util/inet_util.o lock_map/lock_map.o \
 		conf/conf.o log/log.o strop/strop.o 
 
 ALL: iftp
