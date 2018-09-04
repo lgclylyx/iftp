@@ -672,7 +672,7 @@ static void do_reset(session& sess) {
 }
 
 static void do_get(session& sess) {
-	int nsend = 0, ntotal = 0;
+	int nsend = -2, ntotal = -2;
 	char sbuff[4096],*sbuffptr = sbuff;
 	char text[1024] = {0};
 	// (1)下载文件;(2)断点续传;
@@ -715,6 +715,12 @@ static void do_get(session& sess) {
 		goto clear;
 	}
 
+	if(-1 == lseek(fd, sess.restart_pos, SEEK_SET)) {
+		ERROR("iftp", "fd %d: %s%d.\n", sess.ctrl_fd, "failed to lseek to ", sess.restart_pos);
+		ftp_reply(sess, 550, "failed to lseek");
+		goto clear;
+	}
+
 	if(sess.is_ascii) {
 		sprintf(text, "opening ascii mode data connection for %s (%lld bytes)", sess.arg, (long long)sbuf.st_size);
 	} else {
@@ -742,11 +748,12 @@ clear:
 	close(fd);
 	close(sess.data_fd);
 	sess.data_fd = -1;
+	sess.restart_pos = 0;
 	if(0 == ntotal){
 		ftp_reply(sess, 226, "transfer complete");
 	} else if(-1 == ntotal) {
 		ftp_reply(sess, 451, "failed to read local file");
-	} else {
+	} else if(-1 == nsend) {
 		ftp_reply(sess, 426, "bad network");
 	}
 }
