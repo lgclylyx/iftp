@@ -60,6 +60,9 @@
         "numeric": "cpp",
         "optional": "cpp",
         "sstream": "cpp",
-        "xlocbuf": "cpp"
-    }
+        "xlocbuf": "cpp",
+        "cerrno": "cpp",
+        "queue": "cpp"
+    },
+    "C_Cpp.errorSquiggles": "Disabled"
 }
